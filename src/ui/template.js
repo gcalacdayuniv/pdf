@@ -19,12 +19,8 @@ export function renderHTML() {
     <h2>Merge Google Drive Images to PDF</h2>
     <form action="/generate" method="POST">
         <div class="form-group">
-            <label>Google Drive Folder ID</label>
-            <input type="text" name="folderId" required>
-        </div>
-        <div class="form-group">
-            <label>Google API Key</label>
-            <input type="password" name="apiKey" required>
+            <label>Google Drive Folder ID or URL</label>
+            <input type="text" name="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
         </div>
         <div class="form-group">
             <label>Paper Size</label>
