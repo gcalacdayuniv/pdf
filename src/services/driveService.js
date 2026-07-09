@@ -1,6 +1,6 @@
 export async function getImagesFromFolder(folderId, apiKey) {
     const query = `'${folderId}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed=false`;
-    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name&fields=files(id,name,mimeType)&key=${apiKey}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=name&pageSize=45&fields=files(id,name,mimeType)&includeItemsFromAllDrives=true&supportsAllDrives=true&key=${apiKey}`;
 
     const response = await fetch(url);
     if (!response.ok) {
