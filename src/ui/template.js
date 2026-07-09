@@ -74,7 +74,7 @@ export function renderHTML() {
         const GOOGLE_API_KEY = "AIzaSyD8B4SRbew1s2BBlYkRXC2SaiCVcfMwFQs";
         const INCH_TO_PT = 72;
         
-        // Helper function to slow down requests and prevent Google bot-blocks
+        // Helper function to sleep for a variable number of milliseconds
         const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
         function toggleCustomSize() {
@@ -141,8 +141,9 @@ export function renderHTML() {
                     const file = files[i];
                     statusText.innerText = \`Downloading image \${i + 1} of \${files.length}...\`;
                     
-                    // Throttle the loop by 400 milliseconds to avoid Google Rate Limits
-                    await sleep(400);
+                    // Generate a random delay between 400ms and 800ms
+                    const randomDelay = Math.floor(Math.random() * (800 - 400 + 1)) + 400;
+                    await sleep(randomDelay);
                     
                     const imgUrl = \`https://www.googleapis.com/drive/v3/files/\${file.id}?alt=media&key=\${GOOGLE_API_KEY}\`;
                     const imgResponse = await fetch(imgUrl);
