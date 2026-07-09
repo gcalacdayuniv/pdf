@@ -5,26 +5,29 @@ export function renderHTML() {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Drive to PDF Merger</title>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input, select { width: 100%; padding: 8px; box-sizing: border-box; }
         .margin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        button { padding: 10px 15px; background: #0056b3; color: white; border: none; cursor: pointer; width: 100%; font-size: 16px; }
+        button { padding: 10px 15px; background: #0056b3; color: white; border: none; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
         button:hover { background: #004494; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
+        #status { margin-top: 15px; font-weight: bold; color: #333; text-align: center; }
     </style>
 </head>
 <body>
     <h2>Merge Google Drive Images to PDF</h2>
-    <form action="/generate" method="POST">
+    <form id="pdfForm">
         <div class="form-group">
             <label>Google Drive Folder ID or URL</label>
-            <input type="text" name="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
+            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
         </div>
         <div class="form-group">
             <label>Paper Size</label>
-            <select name="paperSize" id="paperSize" onchange="toggleCustomSize()">
+            <select id="paperSize" onchange="toggleCustomSize()">
                 <option value="letter">Letter (8.5 x 11 in)</option>
                 <option value="legal">Legal (8.5 x 14 in)</option>
                 <option value="custom">Custom</option>
@@ -33,39 +36,155 @@ export function renderHTML() {
         <div id="customDimensions" style="display: none;" class="margin-grid">
             <div class="form-group">
                 <label>Width (inches)</label>
-                <input type="number" step="0.01" name="customWidth" value="8.5">
+                <input type="number" step="0.01" id="customWidth" value="8.5">
             </div>
             <div class="form-group">
                 <label>Length (inches)</label>
-                <input type="number" step="0.01" name="customLength" value="11">
+                <input type="number" step="0.01" id="customLength" value="11">
             </div>
         </div>
         <div class="margin-grid">
             <div class="form-group">
                 <label>Top Margin (in)</label>
-                <input type="number" step="0.01" name="marginTop" value="1" required>
+                <input type="number" step="0.01" id="marginTop" value="1" required>
             </div>
             <div class="form-group">
                 <label>Bottom Margin (in)</label>
-                <input type="number" step="0.01" name="marginBottom" value="1" required>
+                <input type="number" step="0.01" id="marginBottom" value="1" required>
             </div>
             <div class="form-group">
                 <label>Left Margin (in)</label>
-                <input type="number" step="0.01" name="marginLeft" value="1" required>
+                <input type="number" step="0.01" id="marginLeft" value="1" required>
             </div>
             <div class="form-group">
                 <label>Right Margin (in)</label>
-                <input type="number" step="0.01" name="marginRight" value="1" required>
+                <input type="number" step="0.01" id="marginRight" value="1" required>
             </div>
         </div>
-        <button type="submit">Generate PDF</button>
+        <button type="submit" id="submitBtn">Generate PDF</button>
     </form>
+    
+    <div id="status"></div>
+
     <script>
+        const GOOGLE_API_KEY = "AIzaSyD8B4SRbew1s2BBlYkRXC2SaiCVcfMwFQs";
+        const INCH_TO_PT = 72;
+
         function toggleCustomSize() {
             const size = document.getElementById('paperSize').value;
             const customDiv = document.getElementById('customDimensions');
             customDiv.style.display = size === 'custom' ? 'grid' : 'none';
         }
+
+        document.getElementById('pdfForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            const statusText = document.getElementById('status');
+            
+            submitBtn.disabled = true;
+            statusText.innerText = "Connecting to Google Drive...";
+
+            try {
+                let folderInput = document.getElementById('folderInput').value;
+                let folderId = folderInput;
+                const urlMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
+                if (urlMatch && urlMatch[1]) {
+                    folderId = urlMatch[1];
+                }
+
+                // 1. Fetch File List
+                const query = \`'\${folderId}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed=false\`;
+                // Set pageSize to 1000 to handle massive folders in one request
+                const url = \`https://www.googleapis.com/drive/v3/files?q=\${encodeURIComponent(query)}&orderBy=name&pageSize=1000&fields=files(id,name,mimeType)&includeItemsFromAllDrives=true&supportsAllDrives=true&key=\${GOOGLE_API_KEY}\`;
+
+                const listResponse = await fetch(url);
+                if (!listResponse.ok) throw new Error('Failed to find folder. Check ID and Permissions.');
+                const data = await listResponse.json();
+                const files = data.files || [];
+
+                if (files.length === 0) throw new Error('No images found in this folder.');
+
+                statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
+
+                // 2. Setup PDF parameters
+                const pdfDoc = await PDFLib.PDFDocument.create();
+                const paperSize = document.getElementById('paperSize').value;
+                
+                let widthPt = 8.5 * INCH_TO_PT;
+                let heightPt = 11 * INCH_TO_PT;
+
+                if (paperSize === 'legal') {
+                    heightPt = 14 * INCH_TO_PT;
+                } else if (paperSize === 'custom') {
+                    widthPt = (parseFloat(document.getElementById('customWidth').value) || 8.5) * INCH_TO_PT;
+                    heightPt = (parseFloat(document.getElementById('customLength').value) || 11) * INCH_TO_PT;
+                }
+
+                const marginTop = (parseFloat(document.getElementById('marginTop').value) || 0) * INCH_TO_PT;
+                const marginBottom = (parseFloat(document.getElementById('marginBottom').value) || 0) * INCH_TO_PT;
+                const marginLeft = (parseFloat(document.getElementById('marginLeft').value) || 0) * INCH_TO_PT;
+                const marginRight = (parseFloat(document.getElementById('marginRight').value) || 0) * INCH_TO_PT;
+
+                const usableWidth = widthPt - marginLeft - marginRight;
+                const usableHeight = heightPt - marginTop - marginBottom;
+
+                // 3. Download and embed images one by one
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
+                    
+                    const imgUrl = \`https://www.googleapis.com/drive/v3/files/\${file.id}?alt=media&key=\${GOOGLE_API_KEY}\`;
+                    const imgResponse = await fetch(imgUrl);
+                    if (!imgResponse.ok) continue;
+
+                    const imgBuffer = await imgResponse.arrayBuffer();
+                    let image;
+                    
+                    try {
+                        if (file.mimeType === 'image/jpeg') {
+                            image = await pdfDoc.embedJpg(imgBuffer);
+                        } else if (file.mimeType === 'image/png') {
+                            image = await pdfDoc.embedPng(imgBuffer);
+                        }
+                    } catch (err) {
+                        console.error(\`Skipping unreadable image: \${file.name}\`);
+                        continue;
+                    }
+
+                    if (image) {
+                        const page = pdfDoc.addPage([widthPt, heightPt]);
+                        const imageDims = image.scaleToFit(usableWidth, usableHeight);
+                        
+                        const x = marginLeft + (usableWidth - imageDims.width) / 2;
+                        const y = marginBottom + (usableHeight - imageDims.height) / 2;
+
+                        page.drawImage(image, { x, y, width: imageDims.width, height: imageDims.height });
+                    }
+                }
+
+                statusText.innerText = "Finalizing PDF document...";
+                const pdfBytes = await pdfDoc.save();
+                
+                // 4. Trigger browser download
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const blobUrl = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = 'merged_images.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+
+                statusText.innerText = "Success! PDF downloaded.";
+            } catch (error) {
+                statusText.innerText = \`Error: \${error.message}\`;
+                statusText.style.color = "red";
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
     </script>
 </body>
 </html>`;
