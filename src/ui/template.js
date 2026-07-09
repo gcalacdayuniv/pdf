@@ -26,6 +26,10 @@ export function renderHTML() {
             <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
         </div>
         <div class="form-group">
+            <label>Output File Name</label>
+            <input type="text" id="outputFileName" value="merged_images" placeholder="e.g. vacation_photos" required>
+        </div>
+        <div class="form-group">
             <label>Paper Size</label>
             <select id="paperSize" onchange="toggleCustomSize()">
                 <option value="letter">Letter (8.5 x 11 in)</option>
@@ -92,9 +96,12 @@ export function renderHTML() {
                     folderId = urlMatch[1];
                 }
 
-                // 1. Fetch File List
+                let customFileName = document.getElementById('outputFileName').value.trim();
+                if (!customFileName.toLowerCase().endsWith('.pdf')) {
+                    customFileName += '.pdf';
+                }
+
                 const query = \`'\${folderId}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed=false\`;
-                // Set pageSize to 1000 to handle massive folders in one request
                 const url = \`https://www.googleapis.com/drive/v3/files?q=\${encodeURIComponent(query)}&orderBy=name&pageSize=1000&fields=files(id,name,mimeType)&includeItemsFromAllDrives=true&supportsAllDrives=true&key=\${GOOGLE_API_KEY}\`;
 
                 const listResponse = await fetch(url);
@@ -106,7 +113,6 @@ export function renderHTML() {
 
                 statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
 
-                // 2. Setup PDF parameters
                 const pdfDoc = await PDFLib.PDFDocument.create();
                 const paperSize = document.getElementById('paperSize').value;
                 
@@ -128,7 +134,6 @@ export function renderHTML() {
                 const usableWidth = widthPt - marginLeft - marginRight;
                 const usableHeight = heightPt - marginTop - marginBottom;
 
-                // 3. Download and embed images one by one
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
@@ -165,19 +170,18 @@ export function renderHTML() {
                 statusText.innerText = "Finalizing PDF document...";
                 const pdfBytes = await pdfDoc.save();
                 
-                // 4. Trigger browser download
                 const blob = new Blob([pdfBytes], { type: 'application/pdf' });
                 const blobUrl = URL.createObjectURL(blob);
                 
                 const a = document.createElement('a');
                 a.href = blobUrl;
-                a.download = 'merged_images.pdf';
+                a.download = customFileName;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(blobUrl);
 
-                statusText.innerText = "Success! PDF downloaded.";
+                statusText.innerText = \`Success! Saved as \${customFileName}.\`;
             } catch (error) {
                 statusText.innerText = \`Error: \${error.message}\`;
                 statusText.style.color = "red";
