@@ -4,7 +4,6 @@
   "main": "src/index.js",
   "type": "module",
   "dependencies": {
-    "hono": "^4.0.0",
-    "pdf-lib": "^1.17.1"
+    "hono": "^4.0.0"
   }
 }
