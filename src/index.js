@@ -5,6 +5,9 @@ import { renderHTML } from './ui/template.js';
 
 const app = new Hono();
 
+// Hardcoded API Key
+const GOOGLE_API_KEY = "AIzaSyD8B4SRbew1s2BBlYkRXC2SaiCVcfMwFQs"; 
+
 app.get('/', (c) => {
   return c.html(renderHTML());
 });
@@ -12,20 +15,30 @@ app.get('/', (c) => {
 app.post('/generate', async (c) => {
   try {
     const body = await c.req.parseBody();
-    const { folderId, apiKey, paperSize, customWidth, customLength, marginTop, marginBottom, marginLeft, marginRight } = body;
+    const { folderInput, paperSize, customWidth, customLength, marginTop, marginBottom, marginLeft, marginRight } = body;
 
-    if (!folderId || !apiKey) {
-      return c.text('Folder ID and API Key are required.', 400);
+    if (!folderInput) {
+      return c.text('Folder ID or URL is required.', 400);
     }
 
-    const files = await getImagesFromFolder(folderId, apiKey);
+    // Extract ID if a full URL is provided
+    let folderId = folderInput;
+    const urlMatch = folderInput.match(/folders\/([a-zA-Z0-9-_]+)/);
+    if (urlMatch && urlMatch[1]) {
+        folderId = urlMatch[1];
+    }
+
+    const files = await getImagesFromFolder(folderId, GOOGLE_API_KEY);
     if (files.length === 0) {
       return c.text('No images found in this folder.', 404);
     }
 
+    // Cap at 45 files to prevent Cloudflare's 50 subrequest limit error
+    const filesToProcess = files.slice(0, 45);
+
     const imageBuffers = [];
-    for (const file of files) {
-      const buffer = await downloadImage(file.id, apiKey);
+    for (const file of filesToProcess) {
+      const buffer = await downloadImage(file.id, GOOGLE_API_KEY);
       imageBuffers.push({ buffer, mimeType: file.mimeType });
     }
 
