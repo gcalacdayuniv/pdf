@@ -1,0 +1,10 @@
+{
+  "name": "drive-to-pdf",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "module",
+  "dependencies": {
+    "hono": "^4.0.0",
+    "pdf-lib": "^1.17.1"
+  }
+}
