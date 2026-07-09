@@ -73,6 +73,9 @@ export function renderHTML() {
     <script>
         const GOOGLE_API_KEY = "AIzaSyD8B4SRbew1s2BBlYkRXC2SaiCVcfMwFQs";
         const INCH_TO_PT = 72;
+        
+        // Helper function to slow down requests and prevent Google bot-blocks
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
         function toggleCustomSize() {
             const size = document.getElementById('paperSize').value;
@@ -136,11 +139,18 @@ export function renderHTML() {
 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
-                    statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
+                    statusText.innerText = \`Downloading image \${i + 1} of \${files.length}...\`;
+                    
+                    // Throttle the loop by 400 milliseconds to avoid Google Rate Limits
+                    await sleep(400);
                     
                     const imgUrl = \`https://www.googleapis.com/drive/v3/files/\${file.id}?alt=media&key=\${GOOGLE_API_KEY}\`;
                     const imgResponse = await fetch(imgUrl);
-                    if (!imgResponse.ok) continue;
+                    
+                    if (!imgResponse.ok) {
+                        console.warn(\`Failed to download \${file.name}. Moving to next.\`);
+                        continue;
+                    }
 
                     const imgBuffer = await imgResponse.arrayBuffer();
                     let image;
