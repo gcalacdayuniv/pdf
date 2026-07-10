@@ -71,16 +71,25 @@ export function renderHTML() {
     <div id="status"></div>
 
     <script>
-        const GOOGLE_API_KEY = "AIzaSyD8B4SRbew1s2BBlYkRXC2SaiCVcfMwFQs";
+        // Paste your Google Apps Script Web App URL here
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzAWhyD2fJnfKCOR7-yjkAz_3mb2NYP8S7sIkB9z6zpWc9VkiuFL1Uxh1-xF4S_EcTSRw/exec";
+        
         const INCH_TO_PT = 72;
         
-        // Helper function to sleep for a variable number of milliseconds
-        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
         function toggleCustomSize() {
             const size = document.getElementById('paperSize').value;
             const customDiv = document.getElementById('customDimensions');
             customDiv.style.display = size === 'custom' ? 'grid' : 'none';
+        }
+
+        function base64ToUint8Array(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
         }
 
         document.getElementById('pdfForm').addEventListener('submit', async (e) => {
@@ -89,7 +98,7 @@ export function renderHTML() {
             const statusText = document.getElementById('status');
             
             submitBtn.disabled = true;
-            statusText.innerText = "Connecting to Google Drive...";
+            statusText.innerText = "Connecting to Google Drive via Apps Script...";
 
             try {
                 let folderInput = document.getElementById('folderInput').value;
@@ -104,14 +113,16 @@ export function renderHTML() {
                     customFileName += '.pdf';
                 }
 
-                const query = \`'\${folderId}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed=false\`;
-                const url = \`https://www.googleapis.com/drive/v3/files?q=\${encodeURIComponent(query)}&orderBy=name&pageSize=1000&fields=files(id,name,mimeType)&includeItemsFromAllDrives=true&supportsAllDrives=true&key=\${GOOGLE_API_KEY}\`;
-
-                const listResponse = await fetch(url);
-                if (!listResponse.ok) throw new Error('Failed to find folder. Check ID and Permissions.');
+                const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
+                const listResponse = await fetch(listUrl);
+                
+                if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
+                
                 const data = await listResponse.json();
+                
+                if (data.error) throw new Error(data.error);
+                
                 const files = data.files || [];
-
                 if (files.length === 0) throw new Error('No images found in this folder.');
 
                 statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
@@ -141,11 +152,7 @@ export function renderHTML() {
                     const file = files[i];
                     statusText.innerText = \`Downloading image \${i + 1} of \${files.length}...\`;
                     
-                    // Generate a random delay between 400ms and 800ms
-                    const randomDelay = Math.floor(Math.random() * (800 - 400 + 1)) + 400;
-                    await sleep(randomDelay);
-                    
-                    const imgUrl = \`https://www.googleapis.com/drive/v3/files/\${file.id}?alt=media&key=\${GOOGLE_API_KEY}\`;
+                    const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
                     const imgResponse = await fetch(imgUrl);
                     
                     if (!imgResponse.ok) {
@@ -153,14 +160,21 @@ export function renderHTML() {
                         continue;
                     }
 
-                    const imgBuffer = await imgResponse.arrayBuffer();
+                    const imgData = await imgResponse.json();
+                    
+                    if (imgData.error) {
+                        console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
+                        continue;
+                    }
+
+                    const imgBytes = base64ToUint8Array(imgData.base64);
                     let image;
                     
                     try {
                         if (file.mimeType === 'image/jpeg') {
-                            image = await pdfDoc.embedJpg(imgBuffer);
+                            image = await pdfDoc.embedJpg(imgBytes);
                         } else if (file.mimeType === 'image/png') {
-                            image = await pdfDoc.embedPng(imgBuffer);
+                            image = await pdfDoc.embedPng(imgBytes);
                         }
                     } catch (err) {
                         console.error(\`Skipping unreadable image: \${file.name}\`);
