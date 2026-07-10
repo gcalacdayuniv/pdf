@@ -27,7 +27,7 @@ export function renderHTML() {
         </div>
         <div class="form-group">
             <label>Output File Name</label>
-            <input type="text" id="outputFileName" value="merged_images XXX" placeholder="e.g. vacation_photos" required>
+            <input type="text" id="outputFileName" value="Name here" placeholder="e.g. vacation_photos" required>
         </div>
         <div class="form-group">
             <label>Compression Quality (For Email)</label>
@@ -79,7 +79,7 @@ export function renderHTML() {
     <div id="status"></div>
 
     <script>
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzAWhyD2fJnfKCOR7-yjkAz_3mb2NYP8S7sIkB9z6zpWc9VkiuFL1Uxh1-xF4S_EcTSRw/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
         
         const INCH_TO_PT = 72;
         
