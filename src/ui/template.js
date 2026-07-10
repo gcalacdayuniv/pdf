@@ -72,7 +72,7 @@ export function renderHTML() {
 
     <script>
         // Paste your Google Apps Script Web App URL here
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzAWhyD2fJnfKCOR7-yjkAz_3mb2NYP8S7sIkB9z6zpWc9VkiuFL1Uxh1-xF4S_EcTSRw/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
         
         const INCH_TO_PT = 72;
         
