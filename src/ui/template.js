@@ -27,7 +27,15 @@ export function renderHTML() {
         </div>
         <div class="form-group">
             <label>Output File Name</label>
-            <input type="text" id="outputFileName" value="merged_images" placeholder="e.g. vacation_photos" required>
+            <input type="text" id="outputFileName" value="merged_images XXX" placeholder="e.g. vacation_photos" required>
+        </div>
+        <div class="form-group">
+            <label>Compression Quality (For Email)</label>
+            <select id="compressionQuality">
+                <option value="original">Original (No Compression)</option>
+                <option value="medium" selected>Medium (Balances Quality and Size)</option>
+                <option value="low">Low (Smallest File Size)</option>
+            </select>
         </div>
         <div class="form-group">
             <label>Paper Size</label>
@@ -71,8 +79,7 @@ export function renderHTML() {
     <div id="status"></div>
 
     <script>
-        // Paste your Google Apps Script Web App URL here
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzAWhyD2fJnfKCOR7-yjkAz_3mb2NYP8S7sIkB9z6zpWc9VkiuFL1Uxh1-xF4S_EcTSRw/exec";
         
         const INCH_TO_PT = 72;
         
@@ -90,6 +97,58 @@ export function renderHTML() {
                 bytes[i] = binaryString.charCodeAt(i);
             }
             return bytes;
+        }
+
+        async function compressImage(imgBytes, mimeType, qualitySetting) {
+            if (qualitySetting === 'original') {
+                return { bytes: imgBytes, isJpg: mimeType === 'image/jpeg' || mimeType === 'image/jpg' };
+            }
+
+            const blob = new Blob([imgBytes], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = url;
+            });
+            URL.revokeObjectURL(url);
+
+            let maxDim = 1500;
+            let jpegQuality = 0.6;
+            
+            if (qualitySetting === 'low') {
+                maxDim = 1000;
+                jpegQuality = 0.4;
+            }
+
+            let width = img.width;
+            let height = img.height;
+
+            if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                } else {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
+            const base64 = dataUrl.split(',')[1];
+            
+            return { bytes: base64ToUint8Array(base64), isJpg: true };
         }
 
         document.getElementById('pdfForm').addEventListener('submit', async (e) => {
@@ -112,6 +171,8 @@ export function renderHTML() {
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
                     customFileName += '.pdf';
                 }
+                
+                const qualitySetting = document.getElementById('compressionQuality').value;
 
                 const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
                 const listResponse = await fetch(listUrl);
@@ -150,7 +211,7 @@ export function renderHTML() {
 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
-                    statusText.innerText = \`Downloading image \${i + 1} of \${files.length}...\`;
+                    statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
                     
                     const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
                     const imgResponse = await fetch(imgUrl);
@@ -167,17 +228,19 @@ export function renderHTML() {
                         continue;
                     }
 
-                    const imgBytes = base64ToUint8Array(imgData.base64);
-                    let image;
+                    const originalBytes = base64ToUint8Array(imgData.base64);
                     
+                    let image;
                     try {
-                        if (file.mimeType === 'image/jpeg') {
-                            image = await pdfDoc.embedJpg(imgBytes);
-                        } else if (file.mimeType === 'image/png') {
-                            image = await pdfDoc.embedPng(imgBytes);
+                        const { bytes: processedBytes, isJpg } = await compressImage(originalBytes, file.mimeType, qualitySetting);
+                        
+                        if (isJpg) {
+                            image = await pdfDoc.embedJpg(processedBytes);
+                        } else {
+                            image = await pdfDoc.embedPng(processedBytes);
                         }
                     } catch (err) {
-                        console.error(\`Skipping unreadable image: \${file.name}\`);
+                        console.error(\`Skipping unreadable or unprocessable image: \${file.name}\`);
                         continue;
                     }
 
