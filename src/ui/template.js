@@ -73,6 +73,10 @@ export function renderHTML() {
                 <input type="number" step="0.01" id="marginRight" value="1" required>
             </div>
         </div>
+        <div class="form-group">
+            <label>Invisible Prompt Injection (.txt file, optional)</label>
+            <input type="file" id="promptInjectionFile" accept=".txt">
+        </div>
         <button type="submit" id="submitBtn">Generate PDF</button>
     </form>
     
@@ -174,6 +178,18 @@ export function renderHTML() {
                 
                 const qualitySetting = document.getElementById('compressionQuality').value;
 
+                const injectionFile = document.getElementById('promptInjectionFile').files[0];
+                let injectionText = "";
+                if (injectionFile) {
+                    injectionText = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(e);
+                        reader.readAsText(injectionFile);
+                    });
+                    injectionText = injectionText.replace(/[^\\x00-\\x7F]/g, " ");
+                }
+
                 const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
                 const listResponse = await fetch(listUrl);
                 
@@ -189,6 +205,8 @@ export function renderHTML() {
                 statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
 
                 const pdfDoc = await PDFLib.PDFDocument.create();
+                const helveticaFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+                
                 const paperSize = document.getElementById('paperSize').value;
                 
                 let widthPt = 8.5 * INCH_TO_PT;
@@ -252,6 +270,17 @@ export function renderHTML() {
                         const y = marginBottom + (usableHeight - imageDims.height) / 2;
 
                         page.drawImage(image, { x, y, width: imageDims.width, height: imageDims.height });
+                        
+                        if (injectionText) {
+                            page.drawText(injectionText.substring(0, 5000), {
+                                x: 10,
+                                y: 10,
+                                size: 1,
+                                font: helveticaFont,
+                                color: PDFLib.rgb(1, 1, 1),
+                                opacity: 0
+                            });
+                        }
                     }
                 }
 
