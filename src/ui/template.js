@@ -174,12 +174,19 @@ export function renderHTML() {
                 let inputVal = document.getElementById('folderInput').value.trim();
                 let targetId = inputVal;
                 
-                if (sourceType === 'slides') {
-                    const slideMatch = inputVal.match(/\\/d\\/([a-zA-Z0-9-_]+)/);
-                    if (slideMatch && slideMatch[1]) targetId = slideMatch[1];
-                } else {
-                    const folderMatch = inputVal.match(/folders\\/([a-zA-Z0-9-_]+)/);
-                    if (folderMatch && folderMatch[1]) targetId = folderMatch[1];
+                if (inputVal.includes("http")) {
+                    const urlParts = inputVal.split("/");
+                    if (sourceType === 'slides') {
+                        const dIndex = urlParts.indexOf("d");
+                        if (dIndex !== -1 && urlParts.length > dIndex + 1) {
+                            targetId = urlParts[dIndex + 1];
+                        }
+                    } else {
+                        const fIndex = urlParts.indexOf("folders");
+                        if (fIndex !== -1 && urlParts.length > fIndex + 1) {
+                            targetId = urlParts[fIndex + 1].split("?")[0];
+                        }
+                    }
                 }
                 
                 let customFileName = document.getElementById('outputFileName').value.trim();
