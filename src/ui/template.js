@@ -22,8 +22,15 @@ export function renderHTML() {
     <h2>Merge Google Drive Images or Slides to PDF</h2>
     <form id="pdfForm">
         <div class="form-group">
-            <label>Google Drive Folder URL or Google Slides URL</label>
-            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/... or https://docs.google.com/presentation/..." required>
+            <label>Source Type</label>
+            <select id="sourceType">
+                <option value="folder">Google Drive Folder</option>
+                <option value="slides">Google Slides Presentation</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Source URL or ID</label>
+            <input type="text" id="folderInput" placeholder="Paste full URL or just the ID here" required>
         </div>
         <div class="form-group">
             <label>Output File Name</label>
@@ -163,7 +170,17 @@ export function renderHTML() {
             statusText.innerText = "Processing request...";
 
             try {
-                let folderInput = document.getElementById('folderInput').value;
+                const sourceType = document.getElementById('sourceType').value;
+                let inputVal = document.getElementById('folderInput').value.trim();
+                let targetId = inputVal;
+                
+                if (sourceType === 'slides') {
+                    const slideMatch = inputVal.match(/\\/d\\/([a-zA-Z0-9-_]+)/);
+                    if (slideMatch && slideMatch[1]) targetId = slideMatch[1];
+                } else {
+                    const folderMatch = inputVal.match(/folders\\/([a-zA-Z0-9-_]+)/);
+                    if (folderMatch && folderMatch[1]) targetId = folderMatch[1];
+                }
                 
                 let customFileName = document.getElementById('outputFileName').value.trim();
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
@@ -236,14 +253,10 @@ export function renderHTML() {
                     }
                 }
 
-                const slideMatch = folderInput.match(/presentation\\/d\\/([a-zA-Z0-9-_]+)/);
-                const folderMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
-
-                if (slideMatch && slideMatch[1]) {
-                    const presentationId = slideMatch[1];
+                if (sourceType === 'slides') {
                     statusText.innerText = "Connecting to Google Slides via Apps Script...";
                     
-                    const listUrl = \`\${GAS_WEB_APP_URL}?action=getSlides&presentationId=\${presentationId}\`;
+                    const listUrl = \`\${GAS_WEB_APP_URL}?action=getSlides&presentationId=\${targetId}\`;
                     const listResponse = await fetch(listUrl, { redirect: "follow" });
                     
                     const listText = await listResponse.text();
@@ -272,13 +285,8 @@ export function renderHTML() {
                         }
                     }
                 } else {
-                    let folderId = folderInput;
-                    if (folderMatch && folderMatch[1]) {
-                        folderId = folderMatch[1];
-                    }
-                    
                     statusText.innerText = "Connecting to Google Drive via Apps Script...";
-                    const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
+                    const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${targetId}\`;
                     const listResponse = await fetch(listUrl, { redirect: "follow" });
                     
                     const listText = await listResponse.text();
