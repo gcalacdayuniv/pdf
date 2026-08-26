@@ -19,15 +19,15 @@ export function renderHTML() {
     </style>
 </head>
 <body>
-    <h2>Merge Google Drive Images to PDF</h2>
+    <h2>Merge Google Drive Images or Slides to PDF</h2>
     <form id="pdfForm">
         <div class="form-group">
-            <label>Google Drive Folder ID or URL</label>
-            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
+            <label>Google Drive Folder URL / Google Slides URL</label>
+            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/... or https://docs.google.com/presentation/d/..." required>
         </div>
         <div class="form-group">
             <label>Output File Name</label>
-            <input type="text" id="outputFileName" value="Name here" placeholder="e.g. vacation_photos" required>
+            <input type="text" id="outputFileName" value="Name here" placeholder="e.g. merged_document" required>
         </div>
         <div class="form-group">
             <label>Compression Quality (For Email)</label>
@@ -84,6 +84,7 @@ export function renderHTML() {
 
     <script>
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
+        const GOOGLE_API_KEY = "YOUR_API_KEY_HERE"; // Embedded API key for Google Slides API
         
         const INCH_TO_PT = 72;
         
@@ -161,16 +162,11 @@ export function renderHTML() {
             const statusText = document.getElementById('status');
             
             submitBtn.disabled = true;
-            statusText.innerText = "Connecting to Google Drive via Apps Script...";
+            statusText.innerText = "Processing request...";
 
             try {
                 let folderInput = document.getElementById('folderInput').value;
-                let folderId = folderInput;
-                const urlMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
-                if (urlMatch && urlMatch[1]) {
-                    folderId = urlMatch[1];
-                }
-
+                
                 let customFileName = document.getElementById('outputFileName').value.trim();
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
                     customFileName += '.pdf';
@@ -190,25 +186,11 @@ export function renderHTML() {
                     injectionText = injectionText.replace(/[^\\x00-\\x7F]/g, " ");
                 }
 
-                const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
-                const listResponse = await fetch(listUrl);
-                
-                if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
-                
-                const data = await listResponse.json();
-                
-                if (data.error) throw new Error(data.error);
-                
-                const files = data.files || [];
-                if (files.length === 0) throw new Error('No images found in this folder.');
-
-                statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
-
+                // PDF Initialization
                 const pdfDoc = await PDFLib.PDFDocument.create();
                 const helveticaFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
                 
                 const paperSize = document.getElementById('paperSize').value;
-                
                 let widthPt = 8.5 * INCH_TO_PT;
                 let heightPt = 11 * INCH_TO_PT;
 
@@ -227,45 +209,23 @@ export function renderHTML() {
                 const usableWidth = widthPt - marginLeft - marginRight;
                 const usableHeight = heightPt - marginTop - marginBottom;
 
-                for (let i = 0; i < files.length; i++) {
-                    const file = files[i];
-                    statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
-                    
-                    const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
-                    const imgResponse = await fetch(imgUrl);
-                    
-                    if (!imgResponse.ok) {
-                        console.warn(\`Failed to download \${file.name}. Moving to next.\`);
-                        continue;
-                    }
-
-                    const imgData = await imgResponse.json();
-                    
-                    if (imgData.error) {
-                        console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
-                        continue;
-                    }
-
-                    const originalBytes = base64ToUint8Array(imgData.base64);
-                    
+                async function addImageToPdf(originalBytes, mimeType) {
                     let image;
                     try {
-                        const { bytes: processedBytes, isJpg } = await compressImage(originalBytes, file.mimeType, qualitySetting);
-                        
+                        const { bytes: processedBytes, isJpg } = await compressImage(originalBytes, mimeType, qualitySetting);
                         if (isJpg) {
                             image = await pdfDoc.embedJpg(processedBytes);
                         } else {
                             image = await pdfDoc.embedPng(processedBytes);
                         }
                     } catch (err) {
-                        console.error(\`Skipping unreadable or unprocessable image: \${file.name}\`);
-                        continue;
+                        console.error("Skipping unreadable or unprocessable image");
+                        return;
                     }
 
                     if (image) {
                         const page = pdfDoc.addPage([widthPt, heightPt]);
                         const imageDims = image.scaleToFit(usableWidth, usableHeight);
-                        
                         const x = marginLeft + (usableWidth - imageDims.width) / 2;
                         const y = marginBottom + (usableHeight - imageDims.height) / 2;
 
@@ -273,17 +233,97 @@ export function renderHTML() {
                         
                         if (injectionText) {
                             page.drawText(injectionText.substring(0, 5000), {
-                                x: 10,
-                                y: 10,
-                                size: 1,
-                                font: helveticaFont,
-                                color: PDFLib.rgb(1, 1, 1),
-                                opacity: 0
+                                x: 10, y: 10, size: 1, font: helveticaFont, color: PDFLib.rgb(1, 1, 1), opacity: 0
                             });
                         }
                     }
                 }
 
+                const slideMatch = folderInput.match(/presentation\\/d\\/([a-zA-Z0-9-_]+)/);
+                const folderMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
+
+                if (slideMatch && slideMatch[1]) {
+                    // Google Slides Processing Logic
+                    const presentationId = slideMatch[1];
+                    statusText.innerText = "Connecting to Google Slides API...";
+                    
+                    const presUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}?key=\${GOOGLE_API_KEY}\`;
+                    const presRes = await fetch(presUrl);
+                    if (!presRes.ok) throw new Error('Failed to fetch presentation. Verify link and API Key.');
+                    
+                    const presData = await presRes.json();
+                    const slides = presData.slides || [];
+                    
+                    const visibleSlides = slides.filter(slide => !(slide.slideProperties && slide.slideProperties.isHidden));
+                    if (visibleSlides.length === 0) throw new Error('No visible slides found in this presentation.');
+                    
+                    statusText.innerText = \`Found \${visibleSlides.length} visible slides. Formatting PDF...\`;
+
+                    for (let i = 0; i < visibleSlides.length; i++) {
+                        const slide = visibleSlides[i];
+                        statusText.innerText = \`Processing slide \${i + 1} of \${visibleSlides.length}...\`;
+                        
+                        const thumbUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}/pages/\${slide.objectId}/thumbnail?key=\${GOOGLE_API_KEY}\`;
+                        const thumbRes = await fetch(thumbUrl);
+                        if (!thumbRes.ok) {
+                            console.warn(\`Failed to get thumbnail for slide \${slide.objectId}\`);
+                            continue;
+                        }
+                        
+                        const thumbData = await thumbRes.json();
+                        const imgRes = await fetch(thumbData.contentUrl);
+                        if (!imgRes.ok) {
+                            console.warn(\`Failed to download image for slide \${slide.objectId}\`);
+                            continue;
+                        }
+                        
+                        const arrayBuffer = await imgRes.arrayBuffer();
+                        await addImageToPdf(new Uint8Array(arrayBuffer), 'image/png');
+                    }
+                } else {
+                    // Google Drive Folder Processing Logic
+                    let folderId = folderInput;
+                    if (folderMatch && folderMatch[1]) {
+                        folderId = folderMatch[1];
+                    }
+                    
+                    statusText.innerText = "Connecting to Google Drive via Apps Script...";
+                    const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
+                    const listResponse = await fetch(listUrl);
+                    
+                    if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
+                    
+                    const data = await listResponse.json();
+                    if (data.error) throw new Error(data.error);
+                    
+                    const files = data.files || [];
+                    if (files.length === 0) throw new Error('No images found in this folder.');
+
+                    statusText.innerText = \`Found \${files.length} images. Formatting PDF...\`;
+
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
+                        
+                        const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
+                        const imgResponse = await fetch(imgUrl);
+                        
+                        if (!imgResponse.ok) {
+                            console.warn(\`Failed to download \${file.name}. Moving to next.\`);
+                            continue;
+                        }
+
+                        const imgData = await imgResponse.json();
+                        if (imgData.error) {
+                            console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
+                            continue;
+                        }
+
+                        await addImageToPdf(base64ToUint8Array(imgData.base64), file.mimeType);
+                    }
+                }
+
+                // Finalize and Download
                 statusText.innerText = "Finalizing PDF document...";
                 const pdfBytes = await pdfDoc.save();
                 
