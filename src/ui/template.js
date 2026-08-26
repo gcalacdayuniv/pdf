@@ -26,10 +26,6 @@ export function renderHTML() {
             <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/... or https://docs.google.com/presentation/..." required>
         </div>
         <div class="form-group">
-            <label>Google API Key (Required for Google Slides)</label>
-            <input type="text" id="googleApiKey" placeholder="Enter your Google API Key">
-        </div>
-        <div class="form-group">
             <label>Output File Name</label>
             <input type="text" id="outputFileName" value="Name here" placeholder="e.g. merged_document" required>
         </div>
@@ -168,7 +164,6 @@ export function renderHTML() {
 
             try {
                 let folderInput = document.getElementById('folderInput').value;
-                const googleApiKey = document.getElementById('googleApiKey').value.trim();
                 
                 let customFileName = document.getElementById('outputFileName').value.trim();
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
@@ -245,43 +240,31 @@ export function renderHTML() {
                 const folderMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
 
                 if (slideMatch && slideMatch[1]) {
-                    if (!googleApiKey) throw new Error("A Google API Key is required to process Google Slides.");
-                    
                     const presentationId = slideMatch[1];
-                    statusText.innerText = "Connecting to Google Slides API...";
+                    statusText.innerText = "Connecting to Google Slides via Apps Script...";
                     
-                    const presUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}?key=\${googleApiKey}\`;
-                    const presRes = await fetch(presUrl);
-                    if (!presRes.ok) throw new Error('Failed to fetch presentation. Verify link and API Key.');
+                    const listUrl = \`\${GAS_WEB_APP_URL}?action=getSlides&presentationId=\${presentationId}\`;
+                    const listResponse = await fetch(listUrl);
                     
-                    const presData = await presRes.json();
-                    const slides = presData.slides || [];
+                    if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
                     
-                    const visibleSlides = slides.filter(slide => !(slide.slideProperties && slide.slideProperties.isHidden));
-                    if (visibleSlides.length === 0) throw new Error('No visible slides found in this presentation.');
+                    const data = await listResponse.json();
+                    if (data.error) throw new Error(data.error);
                     
-                    statusText.innerText = \`Found \${visibleSlides.length} visible slides. Formatting PDF...\`;
+                    const slides = data.slides || [];
+                    if (slides.length === 0) throw new Error('No visible slides found in this presentation.');
+                    
+                    statusText.innerText = \`Found \${slides.length} visible slides. Formatting PDF...\`;
 
-                    for (let i = 0; i < visibleSlides.length; i++) {
-                        const slide = visibleSlides[i];
-                        statusText.innerText = \`Processing slide \${i + 1} of \${visibleSlides.length}...\`;
+                    for (let i = 0; i < slides.length; i++) {
+                        const slide = slides[i];
+                        statusText.innerText = \`Processing slide \${i + 1} of \${slides.length}...\`;
                         
-                        const thumbUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}/pages/\${slide.objectId}/thumbnail?key=\${googleApiKey}\`;
-                        const thumbRes = await fetch(thumbUrl);
-                        if (!thumbRes.ok) {
-                            console.warn(\`Failed to get thumbnail for slide \${slide.objectId}\`);
-                            continue;
+                        if (slide.base64) {
+                            await addImageToPdf(base64ToUint8Array(slide.base64), slide.mimeType || 'image/png');
+                        } else {
+                            console.warn(\`Skipping slide \${i + 1}: No image data\`);
                         }
-                        
-                        const thumbData = await thumbRes.json();
-                        const imgRes = await fetch(thumbData.contentUrl);
-                        if (!imgRes.ok) {
-                            console.warn(\`Failed to download image for slide \${slide.objectId}\`);
-                            continue;
-                        }
-                        
-                        const arrayBuffer = await imgRes.arrayBuffer();
-                        await addImageToPdf(new Uint8Array(arrayBuffer), 'image/png');
                     }
                 } else {
                     let folderId = folderInput;
