@@ -83,7 +83,7 @@ export function renderHTML() {
     <div id="status"></div>
 
     <script>
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz1955uU1r29FNbK2HGPLQlABwCBnZrQX6ckmeKRI50bim9CGDGiW3ZFzPbV1tHrMkudQ/exec";
         const INCH_TO_PT = 72;
         
         function toggleCustomSize() {
@@ -244,11 +244,16 @@ export function renderHTML() {
                     statusText.innerText = "Connecting to Google Slides via Apps Script...";
                     
                     const listUrl = \`\${GAS_WEB_APP_URL}?action=getSlides&presentationId=\${presentationId}\`;
-                    const listResponse = await fetch(listUrl);
+                    const listResponse = await fetch(listUrl, { redirect: "follow" });
                     
-                    if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
+                    const listText = await listResponse.text();
+                    let data;
+                    try {
+                        data = JSON.parse(listText);
+                    } catch (err) {
+                        throw new Error('Google Apps Script failed to respond correctly. Please check your App Script deployment.');
+                    }
                     
-                    const data = await listResponse.json();
                     if (data.error) throw new Error(data.error);
                     
                     const slides = data.slides || [];
@@ -274,11 +279,16 @@ export function renderHTML() {
                     
                     statusText.innerText = "Connecting to Google Drive via Apps Script...";
                     const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
-                    const listResponse = await fetch(listUrl);
+                    const listResponse = await fetch(listUrl, { redirect: "follow" });
                     
-                    if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
+                    const listText = await listResponse.text();
+                    let data;
+                    try {
+                        data = JSON.parse(listText);
+                    } catch (err) {
+                        throw new Error('Google Apps Script failed to respond correctly. Please check your App Script deployment.');
+                    }
                     
-                    const data = await listResponse.json();
                     if (data.error) throw new Error(data.error);
                     
                     const files = data.files || [];
@@ -291,14 +301,17 @@ export function renderHTML() {
                         statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
                         
                         const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
-                        const imgResponse = await fetch(imgUrl);
+                        const imgResponse = await fetch(imgUrl, { redirect: "follow" });
                         
-                        if (!imgResponse.ok) {
-                            console.warn(\`Failed to download \${file.name}. Moving to next.\`);
+                        const imgText = await imgResponse.text();
+                        let imgData;
+                        try {
+                            imgData = JSON.parse(imgText);
+                        } catch (err) {
+                            console.warn(\`Failed to parse response for \${file.name}. Moving to next.\`);
                             continue;
                         }
 
-                        const imgData = await imgResponse.json();
                         if (imgData.error) {
                             console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
                             continue;
