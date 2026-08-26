@@ -22,8 +22,12 @@ export function renderHTML() {
     <h2>Merge Google Drive Images or Slides to PDF</h2>
     <form id="pdfForm">
         <div class="form-group">
-            <label>Google Drive Folder URL / Google Slides URL</label>
-            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/... or https://docs.google.com/presentation/d/..." required>
+            <label>Google Drive Folder URL or Google Slides URL</label>
+            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/... or https://docs.google.com/presentation/..." required>
+        </div>
+        <div class="form-group">
+            <label>Google API Key (Required for Google Slides)</label>
+            <input type="text" id="googleApiKey" placeholder="Enter your Google API Key">
         </div>
         <div class="form-group">
             <label>Output File Name</label>
@@ -84,8 +88,6 @@ export function renderHTML() {
 
     <script>
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
-        const GOOGLE_API_KEY = "YOUR_API_KEY_HERE"; // Embedded API key for Google Slides API
-        
         const INCH_TO_PT = 72;
         
         function toggleCustomSize() {
@@ -166,6 +168,7 @@ export function renderHTML() {
 
             try {
                 let folderInput = document.getElementById('folderInput').value;
+                const googleApiKey = document.getElementById('googleApiKey').value.trim();
                 
                 let customFileName = document.getElementById('outputFileName').value.trim();
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
@@ -186,7 +189,6 @@ export function renderHTML() {
                     injectionText = injectionText.replace(/[^\\x00-\\x7F]/g, " ");
                 }
 
-                // PDF Initialization
                 const pdfDoc = await PDFLib.PDFDocument.create();
                 const helveticaFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
                 
@@ -243,11 +245,12 @@ export function renderHTML() {
                 const folderMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
 
                 if (slideMatch && slideMatch[1]) {
-                    // Google Slides Processing Logic
+                    if (!googleApiKey) throw new Error("A Google API Key is required to process Google Slides.");
+                    
                     const presentationId = slideMatch[1];
                     statusText.innerText = "Connecting to Google Slides API...";
                     
-                    const presUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}?key=\${GOOGLE_API_KEY}\`;
+                    const presUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}?key=\${googleApiKey}\`;
                     const presRes = await fetch(presUrl);
                     if (!presRes.ok) throw new Error('Failed to fetch presentation. Verify link and API Key.');
                     
@@ -263,7 +266,7 @@ export function renderHTML() {
                         const slide = visibleSlides[i];
                         statusText.innerText = \`Processing slide \${i + 1} of \${visibleSlides.length}...\`;
                         
-                        const thumbUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}/pages/\${slide.objectId}/thumbnail?key=\${GOOGLE_API_KEY}\`;
+                        const thumbUrl = \`https://slides.googleapis.com/v1/presentations/\${presentationId}/pages/\${slide.objectId}/thumbnail?key=\${googleApiKey}\`;
                         const thumbRes = await fetch(thumbUrl);
                         if (!thumbRes.ok) {
                             console.warn(\`Failed to get thumbnail for slide \${slide.objectId}\`);
@@ -281,7 +284,6 @@ export function renderHTML() {
                         await addImageToPdf(new Uint8Array(arrayBuffer), 'image/png');
                     }
                 } else {
-                    // Google Drive Folder Processing Logic
                     let folderId = folderInput;
                     if (folderMatch && folderMatch[1]) {
                         folderId = folderMatch[1];
@@ -323,7 +325,6 @@ export function renderHTML() {
                     }
                 }
 
-                // Finalize and Download
                 statusText.innerText = "Finalizing PDF document...";
                 const pdfBytes = await pdfDoc.save();
                 
