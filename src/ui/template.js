@@ -19,22 +19,15 @@ export function renderHTML() {
     </style>
 </head>
 <body>
-    <h2>Merge Google Drive Images or Slides to PDF</h2>
+    <h2>Merge Google Drive Images to PDF</h2>
     <form id="pdfForm">
         <div class="form-group">
-            <label>Source Type</label>
-            <select id="sourceType">
-                <option value="folder">Google Drive Folder</option>
-                <option value="slides">Google Slides Presentation</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Source URL or ID</label>
-            <input type="text" id="folderInput" placeholder="Paste full URL or just the ID here" required>
+            <label>Google Drive Folder ID or URL</label>
+            <input type="text" id="folderInput" placeholder="e.g. https://drive.google.com/drive/folders/..." required>
         </div>
         <div class="form-group">
             <label>Output File Name</label>
-            <input type="text" id="outputFileName" value="Name here" placeholder="e.g. merged_document" required>
+            <input type="text" id="outputFileName" value="Name here" placeholder="e.g. vacation_photos" required>
         </div>
         <div class="form-group">
             <label>Compression Quality (For Email)</label>
@@ -90,7 +83,8 @@ export function renderHTML() {
     <div id="status"></div>
 
     <script>
-        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz1955uU1r29FNbK2HGPLQlABwCBnZrQX6ckmeKRI50bim9CGDGiW3ZFzPbV1tHrMkudQ/exec";
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbykGcT7JWw8cx-mbt4ijIos9pjaeOXudxg6byVCotsA_FxTSssIJfLqkqZ__eTCV6NSRA/exec";
+        
         const INCH_TO_PT = 72;
         
         function toggleCustomSize() {
@@ -167,28 +161,16 @@ export function renderHTML() {
             const statusText = document.getElementById('status');
             
             submitBtn.disabled = true;
-            statusText.innerText = "Processing request...";
+            statusText.innerText = "Connecting to Google Drive via Apps Script...";
 
             try {
-                const sourceType = document.getElementById('sourceType').value;
-                let inputVal = document.getElementById('folderInput').value.trim();
-                let targetId = inputVal;
-                
-                if (inputVal.includes("http")) {
-                    const urlParts = inputVal.split("/");
-                    if (sourceType === 'slides') {
-                        const dIndex = urlParts.indexOf("d");
-                        if (dIndex !== -1 && urlParts.length > dIndex + 1) {
-                            targetId = urlParts[dIndex + 1];
-                        }
-                    } else {
-                        const fIndex = urlParts.indexOf("folders");
-                        if (fIndex !== -1 && urlParts.length > fIndex + 1) {
-                            targetId = urlParts[fIndex + 1].split("?")[0];
-                        }
-                    }
+                let folderInput = document.getElementById('folderInput').value;
+                let folderId = folderInput;
+                const urlMatch = folderInput.match(/folders\\/([a-zA-Z0-9-_]+)/);
+                if (urlMatch && urlMatch[1]) {
+                    folderId = urlMatch[1];
                 }
-                
+
                 let customFileName = document.getElementById('outputFileName').value.trim();
                 if (!customFileName.toLowerCase().endsWith('.pdf')) {
                     customFileName += '.pdf';
@@ -208,10 +190,25 @@ export function renderHTML() {
                     injectionText = injectionText.replace(/[^\\x00-\\x7F]/g, " ");
                 }
 
+                const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${folderId}\`;
+                const listResponse = await fetch(listUrl);
+                
+                if (!listResponse.ok) throw new Error('Failed to reach Google Apps Script.');
+                
+                const data = await listResponse.json();
+                
+                if (data.error) throw new Error(data.error);
+                
+                const files = data.files || [];
+                if (files.length === 0) throw new Error('No images found in this folder.');
+
+                statusText.innerText = \`Found \${files.length} images. Initializing PDF...\`;
+
                 const pdfDoc = await PDFLib.PDFDocument.create();
                 const helveticaFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
                 
                 const paperSize = document.getElementById('paperSize').value;
+                
                 let widthPt = 8.5 * INCH_TO_PT;
                 let heightPt = 11 * INCH_TO_PT;
 
@@ -230,23 +227,45 @@ export function renderHTML() {
                 const usableWidth = widthPt - marginLeft - marginRight;
                 const usableHeight = heightPt - marginTop - marginBottom;
 
-                async function addImageToPdf(originalBytes, mimeType) {
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
+                    
+                    const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
+                    const imgResponse = await fetch(imgUrl);
+                    
+                    if (!imgResponse.ok) {
+                        console.warn(\`Failed to download \${file.name}. Moving to next.\`);
+                        continue;
+                    }
+
+                    const imgData = await imgResponse.json();
+                    
+                    if (imgData.error) {
+                        console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
+                        continue;
+                    }
+
+                    const originalBytes = base64ToUint8Array(imgData.base64);
+                    
                     let image;
                     try {
-                        const { bytes: processedBytes, isJpg } = await compressImage(originalBytes, mimeType, qualitySetting);
+                        const { bytes: processedBytes, isJpg } = await compressImage(originalBytes, file.mimeType, qualitySetting);
+                        
                         if (isJpg) {
                             image = await pdfDoc.embedJpg(processedBytes);
                         } else {
                             image = await pdfDoc.embedPng(processedBytes);
                         }
                     } catch (err) {
-                        console.error("Skipping unreadable or unprocessable image");
-                        return;
+                        console.error(\`Skipping unreadable or unprocessable image: \${file.name}\`);
+                        continue;
                     }
 
                     if (image) {
                         const page = pdfDoc.addPage([widthPt, heightPt]);
                         const imageDims = image.scaleToFit(usableWidth, usableHeight);
+                        
                         const x = marginLeft + (usableWidth - imageDims.width) / 2;
                         const y = marginBottom + (usableHeight - imageDims.height) / 2;
 
@@ -254,85 +273,14 @@ export function renderHTML() {
                         
                         if (injectionText) {
                             page.drawText(injectionText.substring(0, 5000), {
-                                x: 10, y: 10, size: 1, font: helveticaFont, color: PDFLib.rgb(1, 1, 1), opacity: 0
+                                x: 10,
+                                y: 10,
+                                size: 1,
+                                font: helveticaFont,
+                                color: PDFLib.rgb(1, 1, 1),
+                                opacity: 0
                             });
                         }
-                    }
-                }
-
-                if (sourceType === 'slides') {
-                    statusText.innerText = "Connecting to Google Slides via Apps Script...";
-                    
-                    const listUrl = \`\${GAS_WEB_APP_URL}?action=getSlides&presentationId=\${targetId}\`;
-                    const listResponse = await fetch(listUrl, { redirect: "follow" });
-                    
-                    const listText = await listResponse.text();
-                    let data;
-                    try {
-                        data = JSON.parse(listText);
-                    } catch (err) {
-                        throw new Error('Google Apps Script failed to respond correctly. Please check your App Script deployment.');
-                    }
-                    
-                    if (data.error) throw new Error(data.error);
-                    
-                    const slides = data.slides || [];
-                    if (slides.length === 0) throw new Error('No visible slides found in this presentation.');
-                    
-                    statusText.innerText = \`Found \${slides.length} visible slides. Formatting PDF...\`;
-
-                    for (let i = 0; i < slides.length; i++) {
-                        const slide = slides[i];
-                        statusText.innerText = \`Processing slide \${i + 1} of \${slides.length}...\`;
-                        
-                        if (slide.base64) {
-                            await addImageToPdf(base64ToUint8Array(slide.base64), slide.mimeType || 'image/png');
-                        } else {
-                            console.warn(\`Skipping slide \${i + 1}: No image data\`);
-                        }
-                    }
-                } else {
-                    statusText.innerText = "Connecting to Google Drive via Apps Script...";
-                    const listUrl = \`\${GAS_WEB_APP_URL}?action=list&folderId=\${targetId}\`;
-                    const listResponse = await fetch(listUrl, { redirect: "follow" });
-                    
-                    const listText = await listResponse.text();
-                    let data;
-                    try {
-                        data = JSON.parse(listText);
-                    } catch (err) {
-                        throw new Error('Google Apps Script failed to respond correctly. Please check your App Script deployment.');
-                    }
-                    
-                    if (data.error) throw new Error(data.error);
-                    
-                    const files = data.files || [];
-                    if (files.length === 0) throw new Error('No images found in this folder.');
-
-                    statusText.innerText = \`Found \${files.length} images. Formatting PDF...\`;
-
-                    for (let i = 0; i < files.length; i++) {
-                        const file = files[i];
-                        statusText.innerText = \`Processing image \${i + 1} of \${files.length}...\`;
-                        
-                        const imgUrl = \`\${GAS_WEB_APP_URL}?action=getFile&fileId=\${file.id}\`;
-                        const imgResponse = await fetch(imgUrl, { redirect: "follow" });
-                        
-                        const imgText = await imgResponse.text();
-                        let imgData;
-                        try {
-                            imgData = JSON.parse(imgText);
-                        } catch (err) {
-                            console.warn(\`Failed to parse response for \${file.name}. Moving to next.\`);
-                            continue;
-                        }
-
-                        if (imgData.error) {
-                            console.error(\`Script Error on \${file.name}: \${imgData.error}\`);
-                            continue;
-                        }
-
-                        await addImageToPdf(base64ToUint8Array(imgData.base64), file.mimeType);
                     }
                 }
 
